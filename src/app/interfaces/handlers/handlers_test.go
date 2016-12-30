@@ -23,6 +23,7 @@ func TestQparam(t *testing.T) {
 		{"2nd", "b"},
 		{"5nd", "e"},
 		{"last", "z"},
+		{"notexists", ""},
 	}
 
 	for _, test := range tests {
