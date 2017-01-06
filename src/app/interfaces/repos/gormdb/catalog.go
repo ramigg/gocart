@@ -1,9 +1,6 @@
 package gormdb
 
-import (
-	"app"
-	"app/interfaces/errs"
-)
+import "app"
 
 func NewCatalog(r *Repo) *Catalog {
 	return &Catalog{r}
@@ -16,7 +13,7 @@ type Catalog struct {
 func (cr *Catalog) OneActiveProduct(id interface{}) (*app.Product, error) {
 	var p app.Product
 	if err := cr.db.Preload("Image").Preload("Categories").First(&p, "id=? AND is_active=?", id, true).Error; err != nil {
-		return nil, errs.Wrap(err)
+		return nil, err
 	}
 	return &p, nil
 }
@@ -25,7 +22,7 @@ func (cr *Catalog) FindActiveProducts(f *app.DBFilter) ([]app.Product, error) {
 	var ps []app.Product
 
 	if err := cr.db.Preload("Image").Find(&ps, "is_active=?", true).Error; err != nil {
-		return nil, errs.Wrap(err)
+		return nil, err
 	}
 	return ps, nil
 }
@@ -40,11 +37,11 @@ func (cr *Catalog) FindActiveProductsByCategory(ids []interface{}, f *app.DBFilt
 		Where("category_id in (?)", ids).
 		Group("product_id").
 		Pluck("product_id", &pids).Error; err != nil {
-		return nil, errs.Wrap(err)
+		return nil, err
 	}
 
 	if err := cr.db.Preload("Image").Where("id in (?) AND is_active=?", pids, true).Find(&ps).Error; err != nil {
-		return nil, errs.Wrap(err)
+		return nil, err
 	}
 	return ps, nil
 }
@@ -53,7 +50,7 @@ func (cr *Catalog) FindActiveCategories(f *app.DBFilter) ([]app.Category, error)
 	var cs []app.Category
 
 	if err := cr.db.Preload("Image").Find(&cs, "is_active=?", true).Error; err != nil {
-		return nil, errs.Wrap(err)
+		return nil, err
 	}
 	return cs, nil
 }
@@ -70,7 +67,7 @@ func (cr *Catalog) DeleteProduct(id interface{}) error {
 	// clear Associations
 	if err := tx.Model(&p).Association("Categories").Clear().Error; err != nil {
 		tx.Rollback()
-		return errs.Wrap(err)
+		return err
 	}
 
 	// todo: also delete image files
@@ -81,7 +78,7 @@ func (cr *Catalog) DeleteProduct(id interface{}) error {
 
 	if err := tx.Delete(&p).Error; err != nil {
 		tx.Rollback()
-		return errs.Wrap(err)
+		return err
 	}
 
 	tx.Commit()
@@ -89,9 +86,9 @@ func (cr *Catalog) DeleteProduct(id interface{}) error {
 }
 
 func (cr *Catalog) SetProductCategories(p *app.Product, cs []app.Category) error {
-	return errs.Wrap(cr.db.Model(p).Association("Categories").Replace(cs).Error)
+	return cr.db.Model(p).Association("Categories").Replace(cs).Error
 }
 
 func (cr *Catalog) SetProductImage(p *app.Product, img *app.Image) error {
-	return errs.Wrap(cr.db.Model(p).Association("Image").Replace(img).Error)
+	return cr.db.Model(p).Association("Image").Replace(img).Error
 }

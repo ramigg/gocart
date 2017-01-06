@@ -20,19 +20,19 @@ type Handler struct {
 }
 
 func (eh *Handler) Handle(w http.ResponseWriter, err error) {
-	apperr, ok := errors.Cause(err).(*Error)
+	appErr, ok := errors.Cause(err).(*Error)
 	if eh.Debug == "on" {
-		var scode = 422
+		var code = http.StatusInternalServerError
 		if ok {
-			scode = apperr.HTTPCode
+			code = appErr.HTTPCode
 		}
-		gores.String(w, scode, fmt.Sprintf("%+v", err))
+		gores.String(w, code, fmt.Sprintf("%+v", err))
 		return
 	}
 
 	if ok {
-		res := Response{Code: apperr.Code, Message: apperr.Error()}
-		gores.JSON(w, apperr.HTTPCode, res)
+		res := Response{Code: appErr.Code, Message: appErr.Error()}
+		gores.JSON(w, appErr.HTTPCode, res)
 		return
 	}
 

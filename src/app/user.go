@@ -1,12 +1,12 @@
 package app
 
 import (
+	"app/interfaces/errs"
 	"context"
 	"strconv"
 	"time"
 
 	jwt "github.com/dgrijalva/jwt-go"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -57,10 +57,40 @@ func (u *User) CreateJWT(secretKey string) (string, error) {
 	// the final token (hashed string)
 	signedSecret, err := token.SignedString([]byte(secretKey))
 	if err != nil {
-		return "", errors.Wrap(err, "token can't signed")
+		return "", errs.WrapMsg(err, "token can't signed")
 	}
 
 	return signedSecret, nil
+}
+
+func (u *User) GenResetPasswordToken() (string, error) {
+	claims := jwt.MapClaims{"email": u.Email, "exp": time.Now().Add(time.Hour * 5).Unix()}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(u.Password))
+	if err != nil {
+		return "", errs.WrapMsg(err, "token can't signed")
+	}
+	return tokenString, nil
+}
+
+func (u *User) IsResetPasswordTokenValid(tokenStr string) error {
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		return []byte(u.Password), nil
+	})
+	if err != nil {
+		return err
+	}
+
+	email, ok := token.Claims.(jwt.MapClaims)["email"].(string)
+	if !ok {
+		return errs.NewWithStack("email can't get from token claims, token: %s", tokenStr)
+	}
+
+	if email != u.Email {
+		return errs.NewWithStack("token's email and user's email aren't equal")
+	}
+
+	return nil
 }
 
 func (u *User) NewContext(ctx context.Context) context.Context {

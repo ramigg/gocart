@@ -1,6 +1,7 @@
 package interfaces
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -25,7 +26,7 @@ func getToken(r *http.Request) (string, error) {
 
 	authHeaderParts := strings.Split(authHeader, " ")
 	if len(authHeaderParts) != 2 || strings.ToLower(authHeaderParts[0]) != "bearer" {
-		return "", errs.Wrap(errs.Unauthorized("invalid authorization token format"))
+		return "", errs.Unauthorized("invalid authorization token format")
 	}
 
 	return authHeaderParts[1], nil
@@ -51,14 +52,14 @@ func NewSetUserMid(db app.DBFinder, eh errHandler) func(http.Handler) http.Handl
 				})
 				if err != nil {
 					if errs.IsTokenExpiredErr(err) {
-						return nil, errs.Wrap(errs.ErrTokenExpired)
+						return nil, errs.ErrTokenExpired
 					}
-					return nil, errs.WrapMsg(err, "token string can't parsed.")
+					return nil, errs.BadRequest("token string can't parsed.").SetInner(err)
 				}
 
 				userID, ok := token.Claims.(jwt.MapClaims)["userID"].(string)
 				if !ok {
-					return nil, errs.NewWithStack("userID can't get from token claims, token: %s", tokenStr)
+					return nil, fmt.Errorf("userID can't get from token claims, token: %s", tokenStr)
 				}
 
 				var u app.User
@@ -86,13 +87,13 @@ func NewAuthRequiredMid(eh errHandler) func(http.Handler) http.Handler {
 			usr, ok := app.UserFromContext(r.Context())
 			if !ok {
 				err := errs.Unauthorized("Auth required")
-				eh.Handle(w, errs.Wrap(err))
+				eh.Handle(w, err)
 				return
 			}
 
 			if !usr.IsActivated {
 				err := errs.Unauthorized("Inactive user")
-				eh.Handle(w, errs.Wrap(err))
+				eh.Handle(w, err)
 				return
 			}
 

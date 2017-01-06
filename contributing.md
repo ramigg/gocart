@@ -29,7 +29,7 @@ This project has own GOPATH.
 Please respect the following rules and approaches while contribution.
 
 - Uncle Bob's "The Clean Architecture" 
-- Dave Cheney, "Don’t just check errors, handle them gracefully"
+- By Andrew Gerrand, "Error handling and Go" 
 - SOLID design principles
 
 Many thanks to our contributors: [contributors](https://github.com/alioygur/gocart/graphs/contributors)

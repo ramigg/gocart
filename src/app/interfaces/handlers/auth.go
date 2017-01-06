@@ -2,124 +2,258 @@ package handlers
 
 import (
 	"app"
-	"app/usecases"
+	"app/interfaces/errs"
+	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 
 	"github.com/gorilla/mux"
 
 	gores "gopkg.in/alioygur/gores.v1"
 )
 
-// AuthService interface
-type AuthService interface {
-	Login(string, string) (string, error)
-	Register(*usecases.RegisterForm) (string, error)
-	SendPasswordResetLink(string, string) error
-	ResetPassword(string, string) error
-	RegisterFacebook(string) (string, error)
+var (
+	errEmailExists    = errs.BadRequest("email address already exists")
+	errEmailNotExists = errs.BadRequest("email address not exists")
+	errWrongCred      = errs.Unauthorized("wrong credentials")
+	errInactiveUser   = errs.Unauthorized("inactive user")
+	errInvalidToken   = errs.BadRequest("invalid token")
+)
+
+type userRepo interface {
+	OneByEmail(string) (*app.User, error)
+	ExistsByEmail(string) (bool, error)
+	UpdateFields(map[string]interface{}) error
+	Create(*app.User) error
+	app.DBNotFoundErrChecker
+}
+
+type socialAuth interface {
+	GetUserFromFacebook(string) (*app.User, error)
 }
 
 // NewAuthHandler instances new auth handler struct
-func NewAuthHandler(s AuthService, eh app.ErrorHandler) *AuthHandler {
-	return &AuthHandler{srv: s, eh: eh}
+func NewAuthHandler(ur userRepo, sa socialAuth) *authHandler {
+	return &authHandler{ur, sa}
 }
 
 // AuthHandler struct
-type AuthHandler struct {
-	srv AuthService
-	eh  app.ErrorHandler
+type authHandler struct {
+	ur userRepo
+	sa socialAuth
+	// sendPasswordResetLink func(m app.MailSender, to, link string) error
 }
 
 // SetRoutes sets this module's routes
-func (ah *AuthHandler) SetRoutes(r *mux.Router) {
-	r.HandleFunc("/v1/auth/login", ah.login).Methods("POST")
-	r.HandleFunc("/v1/auth/register", ah.register).Methods("POST")
-	r.HandleFunc("/v1/auth/register-fb", ah.registerFacebook).Methods("POST")
+func (ah *authHandler) SetRoutes(r *mux.Router) {
+	r.Handle("/v1/auth/login", appHandler(ah.login)).Methods("POST")
+	r.Handle("/v1/auth/register", appHandler(ah.register)).Methods("POST")
+	r.Handle("/v1/auth/register-fb", appHandler(ah.registerFacebook)).Methods("POST")
 
-	r.HandleFunc("/v1/password/forgot", ah.forgotPassword).Methods("POST")
-	r.HandleFunc("/v1/password/reset", ah.resetPassword).Methods("POST")
+	r.Handle("/v1/password/forgot", appHandler(ah.forgotPassword)).Methods("POST")
+	r.Handle("/v1/password/reset", appHandler(ah.resetPassword)).Methods("POST")
 }
 
-func (ah *AuthHandler) login(w http.ResponseWriter, r *http.Request) {
-	f := new(loginform)
+func (ah *authHandler) login(w http.ResponseWriter, r *http.Request) error {
+	f := new(loginForm)
 	if err := decodeReq(r, f); err != nil {
-		ah.eh.Handle(w, err)
-		return
+		return err
 	}
 
-	token, err := ah.srv.Login(f.Email, f.Password)
+	u, err := ah.ur.OneByEmail(f.Email)
 	if err != nil {
-		ah.eh.Handle(w, err)
-		return
+		if ah.ur.IsNotFoundErr(err) {
+			return errWrongCred
+		}
+		return err
 	}
 
-	gores.JSON(w, http.StatusOK, tokenRes{token})
+	if !u.IsCredentialsVerified(f.Password) {
+		return errWrongCred
+	}
+
+	if !u.IsActivated {
+		return errInactiveUser
+	}
+
+	token, err := u.CreateJWT(os.Getenv("SECRET_KEY"))
+	if err != nil {
+		return err
+	}
+
+	return gores.JSON(w, http.StatusOK, tokenRes{token})
 }
 
-func (ah *AuthHandler) register(w http.ResponseWriter, r *http.Request) {
-	f := new(usecases.RegisterForm)
+func (ah *authHandler) register(w http.ResponseWriter, r *http.Request) error {
+	f := new(registerForm)
 	if err := decodeReq(r, f); err != nil {
-		ah.eh.Handle(w, err)
-		return
+		return err
 	}
 
-	token, err := ah.srv.Register(f)
+	if err := errs.CheckEmail(f.Email); err != nil {
+		return err
+	}
+	if err := errs.CheckPassword(f.Password); err != nil {
+		return err
+	}
+
+	// check for email
+	exists, err := ah.ur.ExistsByEmail(f.Email)
 	if err != nil {
-		ah.eh.Handle(w, err)
-		return
+		return err
+	} else if exists {
+		return errEmailExists
 	}
 
-	gores.JSON(w, http.StatusCreated, tokenRes{token})
+	var usr app.User
+	usr.FirstName = f.FirstName
+	usr.LastName = f.LastName
+	usr.Email = f.Email
+	usr.IsActivated = true
+	usr.SetPassword(f.Password)
+
+	if err := ah.ur.Create(&usr); err != nil {
+		return err
+	}
+
+	token, err := usr.CreateJWT(os.Getenv("SECRET_KEY"))
+	if err != nil {
+		return err
+	}
+
+	return gores.JSON(w, http.StatusCreated, tokenRes{token})
 }
 
-func (ah *AuthHandler) forgotPassword(w http.ResponseWriter, r *http.Request) {
+func (ah *authHandler) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 	f := new(forgotPasswordForm)
 	if err := decodeReq(r, f); err != nil {
-		ah.eh.Handle(w, err)
-		return
+		return err
 	}
 
-	if err := ah.srv.SendPasswordResetLink(f.Email, f.Link); err != nil {
-		ah.eh.Handle(w, err)
-		return
+	if err := errs.CheckEmail(f.Email); err != nil {
+		return err
 	}
+
+	if f.Link == "" {
+		f.Link = os.Getenv("PASSWORD_RESET_URL")
+	}
+	resetURL, err := url.Parse(f.Link)
+	if err != nil {
+		return errs.BadRequest("invalid url").SetInner(err)
+	}
+
+	u, err := ah.ur.OneByEmail(f.Email)
+	if err != nil {
+		if ah.ur.IsNotFoundErr(err) {
+			return errEmailNotExists
+		}
+		return err
+	}
+
+	tokenString, err := u.GenResetPasswordToken()
+	if err != nil {
+		return err
+	}
+
+	q := resetURL.Query()
+	q.Set("token", tokenString)
+	resetURL.RawQuery = q.Encode()
+
+	body := fmt.Sprintf("Please click below link to reset your password <br/> %s", resetURL.String())
+
+	// todo: Send email here
+	_ = body
 
 	gores.NoContent(w)
+	return nil
 }
 
-func (ah *AuthHandler) resetPassword(w http.ResponseWriter, r *http.Request) {
+func (ah *authHandler) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	f := new(resetPasswordForm)
 	if err := decodeReq(r, f); err != nil {
-		ah.eh.Handle(w, err)
-		return
+		return err
 	}
 
-	if err := ah.srv.ResetPassword(f.Token, f.Password); err != nil {
-		ah.eh.Handle(w, err)
-		return
+	if err := errs.CheckEmail(f.Email); err != nil {
+		return err
+	}
+	if err := errs.CheckPassword(f.Password); err != nil {
+		return err
+	}
+
+	u, err := ah.ur.OneByEmail(f.Email)
+	if err != nil {
+		if ah.ur.IsNotFoundErr(err) {
+			return errEmailNotExists
+		}
+		return err
+	}
+
+	if err := u.IsResetPasswordTokenValid(f.Token); err != nil {
+		if errs.IsTokenValidationErr(err) {
+			return errInvalidToken.SetInner(err)
+		}
+		return err
+	}
+
+	u.SetPassword(f.Password)
+	if err := ah.ur.UpdateFields(map[string]interface{}{"Password": u.Password}); err != nil {
+		return err
 	}
 
 	gores.NoContent(w)
+	return nil
 }
 
-func (ah *AuthHandler) registerFacebook(w http.ResponseWriter, r *http.Request) {
+func (ah *authHandler) registerFacebook(w http.ResponseWriter, r *http.Request) error {
 	f := new(registerFacebook)
 	if err := decodeReq(r, f); err != nil {
-		ah.eh.Handle(w, err)
-		return
+		return err
 	}
 
-	token, err := ah.srv.RegisterFacebook(f.AccessToken)
+	u, err := ah.sa.GetUserFromFacebook(f.AccessToken)
 	if err != nil {
-		ah.eh.Handle(w, err)
-		return
+		return err
 	}
 
-	gores.JSON(w, http.StatusCreated, tokenRes{token})
+	existsUser, err := ah.ur.OneByEmail(u.Email)
+	if err == nil {
+		u = existsUser
+	} else if ah.ur.IsNotFoundErr(err) {
+		u.IsActivated = true
+		if err := ah.ur.Create(u); err != nil {
+			return err
+		}
+	} else {
+		return err
+	}
+
+	token, err := u.CreateJWT(os.Getenv("SECRET_KEY"))
+	if err != nil {
+		return err
+	}
+
+	return gores.JSON(w, http.StatusCreated, tokenRes{token})
 }
 
 type tokenRes struct {
 	Token string `json:"token"`
+}
+
+type updateUserForm struct {
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+}
+
+type registerForm struct {
+	FirstName   string `json:"firstName"`
+	LastName    string `json:"lastName"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	IsActivated bool   `json:"isActivated"`
 }
 
 type registerFacebook struct {
@@ -132,11 +266,12 @@ type forgotPasswordForm struct {
 }
 
 type resetPasswordForm struct {
+	Email    string `json:"email"`
 	Password string `json:"password"`
 	Token    string `json:"token"`
 }
 
-type loginform struct {
+type loginForm struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }

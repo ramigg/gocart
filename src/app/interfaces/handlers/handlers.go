@@ -8,12 +8,20 @@ import (
 
 	"fmt"
 
+	"io"
+
+	"github.com/alioygur/gores"
 	"github.com/gorilla/mux"
 )
 
 // decodeReq decodes request's body to given interface
 func decodeReq(r *http.Request, to interface{}) error {
-	return errs.Wrap(json.NewDecoder(r.Body).Decode(to))
+	if err := json.NewDecoder(r.Body).Decode(to); err != nil {
+		if err != io.EOF {
+			return errs.Wrap(err)
+		}
+	}
+	return nil
 }
 
 type response struct {
@@ -36,4 +44,17 @@ func muxVarMustInt(k string, r *http.Request) int {
 		panic(fmt.Sprintf("mux var can't convert to int: %v", err))
 	}
 	return i
+}
+
+type appHandler func(http.ResponseWriter, *http.Request) error
+
+func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if err := fn(w, r); err != nil {
+		appErr, ok := errs.Cause(err).(*errs.Error)
+		code := http.StatusInternalServerError
+		if ok {
+			code = appErr.HTTPCode
+		}
+		gores.String(w, code, fmt.Sprintf("%+v", err))
+	}
 }

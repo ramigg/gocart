@@ -36,11 +36,15 @@ type DBUpdater interface {
 	UpdateFields(model interface{}, kv map[string]interface{}) error
 }
 
+type DBNotFoundErrChecker interface {
+	IsNotFoundErr(error) bool
+}
+
 // Databaser is database interface
 type Databaser interface {
 	DBCreator
 	DBExistser
 	DBFinder
 	DBUpdater
-	IsNotFoundErr(error) bool
+	DBNotFoundErrChecker
 }

@@ -1,10 +1,6 @@
 package app
 
-import (
-	"time"
-
-	"github.com/jinzhu/gorm"
-)
+import "time"
 
 type Order struct {
 	Model
@@ -97,23 +93,6 @@ type Address struct {
 	UserID  int  `json:"-"`
 	Default bool `json:"default"`
 	AddressBody
-}
-
-func (a *Address) BeforeCreate(tx *gorm.DB) error {
-	var count int
-
-	err := tx.
-		Table("addresses").
-		Where("user_id=?", a.UserID).
-		Where("`default`=?", true).
-		Count(&count).
-		Error
-
-	if count == 0 {
-		a.Default = true
-	}
-
-	return err
 }
 
 type Product struct {

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"app/infra"
 	"app/interfaces"
 	"app/interfaces/errs"
 	"app/interfaces/handlers"
@@ -14,6 +13,7 @@ import (
 
 	"log"
 
+	"github.com/alioygur/gores"
 	bugsnag "github.com/bugsnag/bugsnag-go"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -40,30 +40,32 @@ func main() {
 	}
 
 	// Dependencies
-	mail := infra.NewFakeMail()
+	// mail := infra.NewFakeMail()
 	errH := &errs.Handler{Debug: "on"}
+	socialAuth := usecases.NewSocialAuth()
 
 	// Repos
 	gormRepo := gormdb.NewRepo(db)
 	catalogRepo := gormdb.NewCatalog(gormRepo)
+	userRepo := gormdb.NewUser(gormRepo)
 
 	// middlewares
 	authReqMid := interfaces.NewAuthRequiredMid(errH)
 	setUserMid := interfaces.NewSetUserMid(gormRepo, errH)
 
 	// services
-	userSrv := usecases.NewUser(gormRepo, mail)
+	// userSrv := usecases.NewUser(gormRepo, mail)
 	catalogSrv := usecases.NewCatalog(catalogRepo)
 
 	// handlers
-	authH := handlers.NewAuthHandler(userSrv, errH)
-	accountH := handlers.NewAccount(userSrv, errH)
+	authH := handlers.NewAuthHandler(userRepo, socialAuth)
+	accountH := handlers.NewAccount(userRepo)
 	catalogH := handlers.NewCatalog(catalogSrv, errH)
 
 	r := mux.NewRouter()
-	// r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-	// 	gores.String(w, 200, "Okey")
-	// })
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		gores.String(w, 200, "Okey")
+	})
 
 	authH.SetRoutes(r)
 	accountH.SetRoutes(r, authReqMid)

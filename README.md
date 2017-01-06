@@ -15,7 +15,7 @@
 **To solve the some above problems have been used these Approaches;**
 
 - Uncle Bob's "The Clean Architecture" 
-- Dave Cheney, "Don’t just check errors, handle them gracefully"
+- Andrew Gerrand's, "Error handling and Go" 
 - SOLID design principles
 
 **The business**
@@ -46,4 +46,4 @@ waiting your contribute, [contribution guide](https://github.com/alioygur/gocart
 - https://talks.golang.org/2014/organizeio.slide#1
 - http://butunclebob.com/ArticleS.UncleBob.PrinciplesOfOod
 - https://scotch.io/bar-talk/s-o-l-i-d-the-first-five-principles-of-object-oriented-design
-- https://dave.cheney.net/2016/04/27/dont-just-check-errors-handle-them-gracefully
+- https://blog.golang.org/error-handling-and-go

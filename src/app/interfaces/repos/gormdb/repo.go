@@ -16,48 +16,48 @@ type Repo struct {
 }
 
 func (r *Repo) Store(data interface{}) error {
-	return errs.Wrap(r.db.Create(data).Error)
+	return r.db.Create(data).Error
 }
 
 func (r *Repo) Save(model interface{}) error {
-	return errs.Wrap(r.db.Save(model).Error)
+	return r.db.Save(model).Error
 }
 
 func (r *Repo) One(model interface{}, id interface{}) error {
-	return errs.Wrap(r.db.First(model, id).Error)
+	return r.db.First(model, id).Error
 }
 
 func (r *Repo) OneBy(model interface{}, w app.DBWhere) error {
-	return errs.Wrap(r.db.First(model, r.where(w)).Error)
+	return r.db.First(model, r.where(w)).Error
 }
 
 func (r *Repo) FindBy(ms interface{}, w app.DBWhere, fi *app.DBFilter) error {
 	if fi == nil {
-		return errs.Wrap(r.db.Where(r.where(w)).Find(ms).Error)
+		return r.db.Where(r.where(w)).Find(ms).Error
 	}
 	qry := r.db.Where(r.where(w))
 
 	qry = r.filter(qry, fi)
 
-	return errs.Wrap(qry.Find(ms).Error)
+	return qry.Find(ms).Error
 }
 
 func (r *Repo) FirstOrInit(m interface{}, w app.DBWhere) error {
-	return errs.Wrap(r.db.FirstOrInit(m, r.where(w)).Error)
+	return r.db.FirstOrInit(m, r.where(w)).Error
 }
 
 func (r *Repo) ExistsBy(m interface{}, w app.DBWhere) (bool, error) {
 	var n uint
 	err := r.db.Model(m).Where(r.where(w)).Count(&n).Error
-	return n > 0, errs.Wrap(err)
+	return n > 0, err
 }
 
 func (r *Repo) UpdateField(m interface{}, f string, v interface{}) error {
-	return errs.Wrap(r.db.Model(m).Update(f, v).Error)
+	return r.db.Model(m).Update(f, v).Error
 }
 
 func (r *Repo) UpdateFields(m interface{}, kv map[string]interface{}) error {
-	return errs.Wrap(r.db.Model(m).Updates(kv).Error)
+	return r.db.Model(m).Updates(kv).Error
 }
 
 func (r *Repo) IsNotFoundErr(err error) bool {
